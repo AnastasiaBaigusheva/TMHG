@@ -78,8 +78,6 @@ export async function POST(req: NextRequest) {
           role: "user" as const,
           content:
             "Начни игру первым сообщением ровно в таком стиле и смысле:
-
-
 Одно правило.
 **Не ври себе.**
 ---
