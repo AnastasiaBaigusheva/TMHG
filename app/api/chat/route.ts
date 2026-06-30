@@ -73,20 +73,32 @@ export async function POST(req: NextRequest) {
   const isInit = messages.length === 1 && messages[0].content === "__INIT__";
 
   const apiMessages = isInit
-    ? [
-        {
-          role: "user" as const,
-          content:
-            "Начни игру первым сообщением ровно в таком стиле и смысле:
+
+  ? [
+
+      {
+
+        role: "user" as const,
+
+        content: `Начни игру первым сообщением ровно в таком стиле и смысле:
+
+# Самая сложная игра в мире
+
 Одно правило.
+
 **Не ври себе.**
+
 ---
+
 С чем ты хочешь разобраться сегодня?
 
-Не добавляй длинных объяснений, дисклеймеров и списков правил. Дисклеймер уже есть в интерфейсе",
-        },
-      ]
-    : messages.map((m) => ({ role: m.role, content: m.content }));
+Не добавляй длинных объяснений, дисклеймеров и списков правил. Дисклеймер уже есть в интерфейсе.`,
+
+      },
+
+    ]
+
+  : messages.map((m) => ({ role: m.role, content: m.content }));
 
   try {
     const stream = await client.messages.stream({
