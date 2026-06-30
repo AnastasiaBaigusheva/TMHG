@@ -21,44 +21,73 @@ export default function Landing() {
   return (
     <main className="min-h-screen bg-bg">
       {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none opacity-[0.07]">
-          <div className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-accent blur-[160px]" />
-          <div className="absolute -bottom-40 -right-40 w-[500px] h-[500px] rounded-full bg-accent blur-[160px]" />
-        </div>
 
-        <div className="relative max-w-3xl mx-auto px-6 pt-32 pb-28 text-center">
-          <p className="text-xs tracking-[0.3em] uppercase text-accent/80 mb-8">
-            Игра-исследование
-          </p>
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-medium leading-tight tracking-tight mb-8">
-            Самая сложная игра в мире
-          </h1>
-          <p className="text-base text-[#8e8b85] max-w-xl mx-auto mb-12 leading-relaxed">
-            Это интерактивная игра-исследование. Она помогает быстро, честно и без прекрас разобраться в себе.
-          </p>
+<section className="relative overflow-hidden min-h-screen flex items-center border-b border-border">
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
-            <Link
-              href="/chat"
-              className="px-8 py-4 rounded-full bg-accent text-bg font-medium text-sm tracking-wide hover:bg-[#d9bb84] transition-colors"
-            >
-              Начать игру
-            </Link>
-            <a
-              href="#how-it-works"
-              className="text-sm text-[#bdbab2] hover:text-white underline underline-offset-4 decoration-[#3a3a40] transition-colors"
-            >
-              Как это работает
-            </a>
-          </div>
-        </div>
-      </section>
+  <div className="absolute inset-0 pointer-events-none opacity-[0.07]">
+
+    <div className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-accent blur-[160px]" />
+
+    <div className="absolute -bottom-40 -right-40 w-[500px] h-[500px] rounded-full bg-accent blur-[160px]" />
+
+  </div>
+
+  <div className="relative max-w-3xl mx-auto px-6 text-center -translate-y-8">
+
+    <p className="text-xs tracking-[0.3em] uppercase text-accent/80 mb-8">
+
+      Игра-исследование
+
+    </p>
+
+    <h1 className="text-4xl sm:text-5xl md:text-6xl font-medium leading-tight tracking-tight mb-8">
+
+      Самая сложная игра в мире
+
+    </h1>
+
+    <p className="text-base text-[#8e8b85] max-w-xl mx-auto mb-12 leading-relaxed">
+
+      Это интерактивная игра-исследование. Она помогает быстро, честно и без прикрас разобраться в себе.
+
+    </p>
+
+    <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
+
+      <Link
+
+        href="/chat"
+
+        className="px-8 py-4 rounded-full bg-accent text-bg font-medium text-sm tracking-wide hover:bg-[#d9bb84] transition-colors"
+
+      >
+
+        Начать игру
+
+      </Link>
+
+      <a
+
+        href="#how-it-works"
+
+        className="text-sm text-[#bdbab2] hover:text-white underline underline-offset-4 decoration-[#3a3a40] transition-colors"
+
+      >
+
+        Как это работает
+
+      </a>
+
+    </div>
+
+  </div>
+
+</section>
 
       {/* How it works */}
       <section
         id="how-it-works"
-        className="max-w-3xl mx-auto px-6 py-24 border-t border-border"
+        className="max-w-3xl mx-auto px-6 py-24"
       >
         <h2 className="text-2xl font-medium mb-12 text-center">
           Как это работает
