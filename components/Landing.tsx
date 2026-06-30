@@ -3,8 +3,7 @@
 import Link from "next/link";
 
 const steps = [
-  "Вы формулируете личный запрос",
-  "ИИ помогает уточнить настоящую тему",
+  "Формулируете запрос",
   "Игра задает вопросы, от которых трудно спрятаться",
   "После каждого этапа открывается часть вашей внутренней карты",
   "В конце вы получаете краткое резюме инсайтов",
@@ -35,14 +34,8 @@ export default function Landing() {
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-medium leading-tight tracking-tight mb-8">
             Самая сложная игра в мире
           </h1>
-          <p className="text-lg sm:text-xl text-[#bdbab2] mb-6 leading-relaxed">
-            Не потому что в ней сложные правила.
-            <br />А потому что играть придется против самого себя.
-          </p>
           <p className="text-base text-[#8e8b85] max-w-xl mx-auto mb-12 leading-relaxed">
-            Это интерактивная игра-исследование. Она помогает увидеть свои
-            внутренние конфликты, повторяющиеся сценарии, страхи, ценности и
-            точки роста через честный разговор с ИИ.
+            Это интерактивная игра-исследование. Она помогает быстро, честно и без прекрас разобраться в себе.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
