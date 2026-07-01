@@ -10,10 +10,7 @@ import {
 
 export const runtime = "nodejs";
 
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
+type ChatMessage = { role: "user" | "assistant"; content: string };
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -22,45 +19,63 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-// Минимальный fallback: если модель вернула невалидный JSON
 function fallbackState(gs: GameState): GameState {
   return { ...gs, turnCount: gs.turnCount + 1 };
 }
 
-// Строгая валидация и нормализация GameState из ответа модели
+// Вытаскиваем JSON из ответа модели.
+// Ключевой приём: берём срез от первой { до последней } — это надёжно работает
+// даже если модель добавила текст до/после или обернула в ```json```.
+function extractJson(raw: string): unknown {
+  // Стратегия 1 (самая надёжная): первая { до последней }
+  const firstBrace = raw.indexOf("{");
+  const lastBrace  = raw.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    try { return JSON.parse(raw.slice(firstBrace, lastBrace + 1)); } catch { /* continue */ }
+  }
+
+  // Стратегия 2: убрать все ```json и ``` и попробовать распарсить
+  const stripped = raw.replace(/```(?:json)?/gi, "").trim();
+  try { return JSON.parse(stripped); } catch { /* continue */ }
+
+  return null;
+}
+
 function parseGameState(raw: unknown, previous: GameState): GameState {
   if (!raw || typeof raw !== "object") return fallbackState(previous);
   const r = raw as Record<string, unknown>;
 
   const VALID_STAGES = ["intro","request_clarification","contract","exploration","integration","finished"];
-  const VALID_ZONES = ["request","values","fears","defenses","relationships","patterns","resources","insights"];
+  const VALID_ZONES  = ["request","fear","illusion","control","choice","boundaries","resources","insight"];
 
   const stage = VALID_STAGES.includes(r.stage as string)
-    ? (r.stage as GameState["stage"])
-    : previous.stage;
+    ? (r.stage as GameState["stage"]) : previous.stage;
 
-  // Stage never goes backward
+  // Stage никогда не идёт назад
   const stageOrder = VALID_STAGES;
+  const newIdx  = stageOrder.indexOf(stage);
   const prevIdx = stageOrder.indexOf(previous.stage);
-  const newIdx = stageOrder.indexOf(stage);
   const safeStage = newIdx >= prevIdx ? stage : previous.stage;
 
   const userRequest =
     typeof r.userRequest === "string" && r.userRequest.trim()
-      ? r.userRequest.trim()
-      : previous.userRequest;
+      ? r.userRequest.trim() : previous.userRequest;
 
   const confirmedRequest =
     typeof r.confirmedRequest === "boolean" ? r.confirmedRequest : previous.confirmedRequest;
 
   const currentZone = VALID_ZONES.includes(r.currentZone as string)
-    ? (r.currentZone as GameState["currentZone"])
-    : previous.currentZone;
+    ? (r.currentZone as GameState["currentZone"]) : previous.currentZone;
+
+  // currentZone двигается только вперёд по маршруту
+  const zoneOrder = VALID_ZONES;
+  const newZoneIdx  = currentZone ? zoneOrder.indexOf(currentZone) : -1;
+  const prevZoneIdx = previous.currentZone ? zoneOrder.indexOf(previous.currentZone) : -1;
+  const safeZone = newZoneIdx >= prevZoneIdx ? currentZone : previous.currentZone;
 
   const incomingZones = Array.isArray(r.openedZones)
     ? (r.openedZones as string[]).filter((z) => VALID_ZONES.includes(z)) as GameState["openedZones"]
     : [];
-  // openedZones only grows, never shrinks
   const merged = Array.from(new Set([...previous.openedZones, ...incomingZones])) as GameState["openedZones"];
 
   const askedQuestions = Array.isArray(r.askedQuestions)
@@ -72,12 +87,11 @@ function parseGameState(raw: unknown, previous: GameState): GameState {
     : previous.keyInsights;
 
   const intensity = [1,2,3,4,5].includes(r.emotionalIntensity as number)
-    ? (r.emotionalIntensity as GameState["emotionalIntensity"])
-    : previous.emotionalIntensity;
+    ? (r.emotionalIntensity as GameState["emotionalIntensity"]) : previous.emotionalIntensity;
 
-  const turnCount = typeof r.turnCount === "number" ? r.turnCount : previous.turnCount + 1;
+  const turnCount    = typeof r.turnCount    === "number" ? r.turnCount    : previous.turnCount + 1;
   const loopWarnings = typeof r.loopWarnings === "number" ? r.loopWarnings : previous.loopWarnings;
-  const safetyFlag = typeof r.safetyFlag === "boolean" ? r.safetyFlag : previous.safetyFlag;
+  const safetyFlag   = typeof r.safetyFlag   === "boolean" ? r.safetyFlag  : previous.safetyFlag;
   const lastAssistantIntent = typeof r.lastAssistantIntent === "string" ? r.lastAssistantIntent : null;
   const nextStep = typeof r.nextStep === "string" ? r.nextStep : null;
 
@@ -85,7 +99,7 @@ function parseGameState(raw: unknown, previous: GameState): GameState {
     stage: safeStage,
     userRequest,
     confirmedRequest,
-    currentZone,
+    currentZone: safeZone,
     openedZones: merged,
     askedQuestions,
     keyInsights,
@@ -118,7 +132,8 @@ export async function POST(req: NextRequest) {
     if (!m || typeof m.content !== "string" || m.content.trim().length === 0) {
       return jsonResponse({ error: "Пустые сообщения не допускаются." }, 400);
     }
-    if (m.content.length > MAX_USER_MESSAGE_LENGTH) {
+    // Лимит длины — только для сообщений пользователя, не для ассистента
+    if (m.role === "user" && m.content.length > MAX_USER_MESSAGE_LENGTH) {
       return jsonResponse(
         { error: `Сообщение слишком длинное. Максимум ${MAX_USER_MESSAGE_LENGTH} символов.` },
         400
@@ -134,33 +149,42 @@ export async function POST(req: NextRequest) {
   const model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
   const client = new Anthropic({ apiKey });
 
-  // Init: inject gameState as context so the model knows exactly where it is
   const isInit = messages.length === 1 && messages[0].content === "__INIT__";
 
-  const stateContext = `\nТекущий GameState (используй для принятия решений, обнови в ответе):\n${JSON.stringify(incomingState, null, 2)}\n`;
+  // Компактный снимок состояния для передачи модели
+  const stateSnapshot = JSON.stringify({
+    stage:            incomingState.stage,
+    currentZone:      incomingState.currentZone,
+    openedZones:      incomingState.openedZones,
+    confirmedRequest: incomingState.confirmedRequest,
+    userRequest:      incomingState.userRequest,
+    turnCount:        incomingState.turnCount,
+    loopWarnings:     incomingState.loopWarnings,
+    lastInsights:     incomingState.keyInsights.slice(-3),
+    lastQuestions:    incomingState.askedQuestions.slice(-5),
+  });
+
+  const stateContext = `[GAME_STATE: ${stateSnapshot}]\n\n`;
 
   const apiMessages = isInit
-    ? [
-        {
-          role: "user" as const,
-          content:
-            stateContext +
-            "\nЭто первый ход. Напиши первое сообщение игры. Строго по формату: одно правило, без длинных объяснений, заверши вопросом о запросе пользователя. Верни JSON.",
-        },
-      ]
+    ? [{
+        role: "user" as const,
+        content:
+          stateContext +
+          "Первый ход. Напиши ТОЛЬКО JSON. Начни игру: коротко объясни одно правило («Не ври себе»), спроси с чем пользователь хочет разобраться. currentZone остаётся \"request\".",
+      }]
     : messages.map((m, i) => ({
         role: m.role,
-        // Inject state context into the last user message
         content:
           i === messages.length - 1 && m.role === "user"
-            ? stateContext + "\nСообщение пользователя: " + m.content
+            ? stateContext + m.content
             : m.content,
       }));
 
   try {
     const response = await client.messages.create({
       model,
-      max_tokens: 2000,
+      max_tokens: 1500,
       system: SYSTEM_PROMPT,
       messages: apiMessages,
     });
@@ -170,24 +194,26 @@ export async function POST(req: NextRequest) {
       .map((b) => (b as { type: "text"; text: string }).text)
       .join("");
 
-    // Parse JSON from model response
     let content = "";
     let gameState: GameState = fallbackState(incomingState);
 
-    try {
-      // Strip possible markdown fences just in case
-      const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-      const parsed = JSON.parse(cleaned);
+    const parsed = extractJson(rawText);
 
-      content = typeof parsed.userVisibleMessage === "string"
-        ? parsed.userVisibleMessage
-        : rawText;
-
-      gameState = parseGameState(parsed.updatedGameState, incomingState);
-    } catch {
-      // Fallback: return raw text, minimal state update
-      console.warn("Model returned non-JSON, using fallback.");
-      content = rawText;
+    if (parsed && typeof parsed === "object") {
+      const p = parsed as Record<string, unknown>;
+      if (typeof p.userVisibleMessage === "string" && p.userVisibleMessage.trim()) {
+        content   = p.userVisibleMessage.trim();
+        gameState = parseGameState(p.updatedGameState, incomingState);
+      } else {
+        // Модель вернула JSON, но без нужного поля
+        console.warn("JSON parsed but missing userVisibleMessage:", rawText.slice(0, 200));
+        content   = rawText;
+        gameState = fallbackState(incomingState);
+      }
+    } else {
+      // JSON не найден вообще — показываем текст как есть
+      console.warn("No JSON found in model response:", rawText.slice(0, 200));
+      content   = rawText;
       gameState = fallbackState(incomingState);
     }
 
