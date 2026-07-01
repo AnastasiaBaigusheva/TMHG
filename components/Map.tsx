@@ -1,24 +1,30 @@
 "use client";
 
-export const ZONES = [
-  { key: "запрос", label: "Запрос" },
-  { key: "ценности", label: "Ценности" },
-  { key: "страхи", label: "Страхи" },
-  { key: "защиты", label: "Защиты" },
-  { key: "отношения", label: "Отношения" },
-  { key: "сценарии", label: "Сценарии" },
-  { key: "ресурсы", label: "Ресурсы" },
-  { key: "инсайты", label: "Инсайты" },
-] as const;
+import { GameZone } from "@/lib/anthropic";
 
-export type ZoneKey = (typeof ZONES)[number]["key"];
+export const ZONE_META: { key: GameZone; label: string }[] = [
+  { key: "request",       label: "Запрос"     },
+  { key: "values",        label: "Ценности"   },
+  { key: "fears",         label: "Страхи"     },
+  { key: "defenses",      label: "Защиты"     },
+  { key: "relationships", label: "Отношения"  },
+  { key: "patterns",      label: "Сценарии"   },
+  { key: "resources",     label: "Ресурсы"    },
+  { key: "insights",      label: "Инсайты"    },
+];
+
+// Legacy export so old imports don't break
+export const ZONES = ZONE_META;
 
 export default function Map({
-  visited,
-  active,
+  openedZones,
+  currentZone,
 }: {
-  visited: Set<string>;
-  active: string | null;
+  openedZones: GameZone[];
+  currentZone: GameZone | null;
+  // legacy props accepted but ignored
+  visited?: Set<string>;
+  active?: string | null;
 }) {
   return (
     <div className="rounded-xl border border-border bg-panel p-4">
@@ -26,21 +32,24 @@ export default function Map({
         Карта исследования
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-2">
-        {ZONES.map((zone) => {
-          const isActive = active === zone.key;
-          const isVisited = visited.has(zone.key);
+        {ZONE_META.map((zone) => {
+          const isActive  = currentZone === zone.key;
+          const isOpened  = openedZones.includes(zone.key);
           return (
             <div
               key={zone.key}
               className={[
                 "rounded-lg px-3 py-2 text-xs sm:text-sm border transition-colors",
                 isActive
-                  ? "border-accent text-accent bg-accent/10"
-                  : isVisited
+                  ? "border-accent text-accent bg-accent/10 font-medium"
+                  : isOpened
                   ? "border-border text-[#cfccc5] bg-white/[0.02]"
-                  : "border-border/60 text-[#5a5853]",
+                  : "border-border/40 text-[#4a4844]",
               ].join(" ")}
             >
+              {isOpened && !isActive && (
+                <span className="mr-1.5 text-[#5a5853]">✓</span>
+              )}
               {zone.label}
             </div>
           );
