@@ -8,18 +8,161 @@ import {
   containsCrisisLanguage,
   GameState,
   INITIAL_GAME_STATE,
+  GameZone,
+  ZONE_ORDER,
+  ZONE_LABELS,
 } from "@/lib/anthropic";
 
+// ─── Message types ────────────────────────────────────────────
 type Role = "user" | "assistant";
-interface ChatMsg { role: Role; content: string; }
 
+interface ChatMsg {
+  type: "chat";
+  role: Role;
+  content: string;
+}
+
+interface TransitionMsg {
+  type: "transition";
+  completedZone: GameZone;
+  newZone: GameZone;
+}
+
+type Message = ChatMsg | TransitionMsg;
+
+// ─── Constants ────────────────────────────────────────────────
 const CRISIS_NOTICE =
   "Похоже, вы пишете о чём-то очень тяжёлом. Это важнее игры. Пожалуйста, обратитесь к близкому человеку, специалисту или в экстренную службу вашей страны прямо сейчас.";
 
+const TOTAL_ZONES = ZONE_ORDER.length;
 const DEBUG_MODE = process.env.NEXT_PUBLIC_DEBUG_GAME_STATE === "true";
 
+// ─── Helpers ──────────────────────────────────────────────────
+function zoneIndex(zone: GameZone | null): number {
+  if (!zone) return 0;
+  return ZONE_ORDER.indexOf(zone); // 0-based
+}
+
+function progressPercent(zone: GameZone | null): number {
+  if (!zone) return 0;
+  return Math.round(((zoneIndex(zone) + 1) / TOTAL_ZONES) * 100);
+}
+
+// ─── Sub-components ───────────────────────────────────────────
+
+function ProgressHeader({ gameState }: { gameState: GameState }) {
+  const idx = zoneIndex(gameState.currentZone) + 1; // 1-based
+  const pct = progressPercent(gameState.currentZone);
+  const label = gameState.currentZone ? ZONE_LABELS[gameState.currentZone] : "—";
+
+  return (
+    <div className="flex-shrink-0 border-b border-border px-4 py-3 bg-bg">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-[#5a5853] tracking-wide">
+          Клетка {idx} из {TOTAL_ZONES}
+        </span>
+        <span className="text-xs font-medium text-accent tracking-[0.15em] uppercase">
+          {label}
+        </span>
+      </div>
+      {/* Progress bar */}
+      <div className="h-0.5 w-full bg-border rounded-full overflow-hidden">
+        <div
+          className="h-full bg-accent rounded-full transition-all duration-700"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CellTransitionCard({ msg }: { msg: TransitionMsg }) {
+  return (
+    <div className="flex justify-center my-2">
+      <div className="rounded-2xl border border-border bg-white/[0.03] px-6 py-4 text-center max-w-xs w-full">
+        <p className="text-xs text-[#5a5853] mb-2 tracking-wide">✓ Клетка завершена</p>
+        <p className="text-[11px] text-[#5a5853] mb-3">Открыта новая клетка</p>
+        <p className="text-base font-medium text-accent tracking-[0.2em] uppercase">
+          {ZONE_LABELS[msg.newZone]}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function FinishScreen({
+  gameState,
+  feedbackUrl,
+}: {
+  gameState: GameState;
+  feedbackUrl: string;
+}) {
+  const completed = gameState.openedZones.length;
+  const insights  = gameState.keyInsights.length;
+
+  return (
+    <div className="absolute inset-0 bg-bg flex flex-col items-center justify-center px-6 z-10">
+      <div className="w-full max-w-sm text-center space-y-8">
+        <div>
+          <p className="text-xs tracking-[0.3em] uppercase text-accent/70 mb-4">
+            Исследование завершено
+          </p>
+          <h2 className="text-2xl font-medium text-[#e9e7e2] mb-6">
+            Самая сложная игра в мире
+          </h2>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-panel p-6 space-y-4 text-left">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-[#8e8b85]">Пройдено клеток</span>
+            <span className="text-sm font-medium text-[#e9e7e2]">{completed} / {TOTAL_ZONES}</span>
+          </div>
+          <div className="h-px bg-border" />
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-[#8e8b85]">Получено инсайтов</span>
+            <span className="text-sm font-medium text-accent">{insights}</span>
+          </div>
+
+          {gameState.keyInsights.length > 0 && (
+            <>
+              <div className="h-px bg-border" />
+              <div className="space-y-2">
+                {gameState.keyInsights.map((insight, i) => (
+                  <p key={i} className="text-xs text-[#8e8b85] leading-relaxed">
+                    · {insight}
+                  </p>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          {feedbackUrl && (
+            <a
+              href={feedbackUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block px-8 py-3 rounded-full bg-accent text-bg text-sm font-medium hover:bg-[#d9bb84] transition-colors"
+            >
+              Оставить отзыв
+            </a>
+          )}
+          <Link
+            href="/"
+            className="block px-8 py-3 rounded-full border border-border text-[#8e8b85] text-sm hover:border-accent hover:text-accent transition-colors"
+          >
+            На главную
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Chat component ───────────────────────────────────────
 export default function Chat() {
-  const [messages,  setMessages]  = useState<ChatMsg[]>([]);
+  const [messages,  setMessages]  = useState<Message[]>([]);
   const [gameState, setGameState] = useState<GameState>(INITIAL_GAME_STATE);
   const [input,     setInput]     = useState("");
   const [loading,   setLoading]   = useState(false);
@@ -28,13 +171,15 @@ export default function Chat() {
   const [crisis,    setCrisis]    = useState(false);
   const [mapOpen,   setMapOpen]   = useState(false);
 
-  const scrollRef  = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const initiated  = useRef(false);
-  const feedbackUrl = process.env.NEXT_PUBLIC_FEEDBACK_URL || "";
-  const finished = gameState.stage === "finished";
+  const scrollRef    = useRef<HTMLDivElement>(null);
+  const textareaRef  = useRef<HTMLTextAreaElement>(null);
+  const initiated    = useRef(false);
+  const prevZoneRef  = useRef<GameZone | null>(INITIAL_GAME_STATE.currentZone);
 
-  // Auto-scroll messages
+  const feedbackUrl = process.env.NEXT_PUBLIC_FEEDBACK_URL || "";
+  const finished    = gameState.stage === "finished";
+
+  // Auto-scroll
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
@@ -51,32 +196,64 @@ export default function Chat() {
   useEffect(() => {
     if (initiated.current) return;
     initiated.current = true;
-    callApi([{ role: "user", content: "__INIT__" }], INITIAL_GAME_STATE);
+    callApi([{ type: "chat", role: "user", content: "__INIT__" }], INITIAL_GAME_STATE);
   }, []);
 
-  async function callApi(history: ChatMsg[], state: GameState) {
+  async function callApi(history: Message[], state: GameState) {
     setLoading(true);
     setError(null);
+
+    // Only send chat messages to the API
+    const apiMessages = history
+      .filter((m): m is ChatMsg => m.type === "chat")
+      .map((m) => ({ role: m.role, content: m.content }));
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, gameState: state }),
+        body: JSON.stringify({ messages: apiMessages, gameState: state }),
       });
+
       const data = await res.json().catch(() => ({})) as {
-        content?: string; gameState?: GameState; error?: string;
+        content?: string;
+        gameState?: GameState;
+        error?: string;
       };
+
       if (!res.ok) throw new Error(data.error || "Ошибка при обращении к ИИ.");
 
       const assistantText = data.content ?? "";
       const newState: GameState = data.gameState ?? { ...state, turnCount: state.turnCount + 1 };
-      const isInit = history.length === 1 && history[0].content === "__INIT__";
+
+      const isInit = apiMessages.length === 1 && apiMessages[0].content === "__INIT__";
+
+      // Detect zone transition
+      const prevZone = prevZoneRef.current;
+      const newZone  = newState.currentZone;
+      const zoneChanged = prevZone && newZone && prevZone !== newZone;
+      prevZoneRef.current = newZone;
+
       setMessages((prev) => {
-        const visible = isInit ? [] : prev;
-        return [...visible, { role: "assistant", content: assistantText }];
+        const base = isInit ? [] : prev;
+        const next: Message[] = [
+          ...base,
+          { type: "chat", role: "assistant", content: assistantText },
+        ];
+        // Insert transition card before the new message if zone changed
+        if (zoneChanged && prevZone && newZone) {
+          next.splice(next.length - 1, 0, {
+            type: "transition",
+            completedZone: prevZone,
+            newZone: newZone,
+          });
+        }
+        return next;
       });
+
       setGameState(newState);
       if (newState.safetyFlag) { setCrisis(true); setPaused(true); }
+
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Что-то пошло не так. Попробуйте ещё раз.");
     } finally {
@@ -92,14 +269,15 @@ export default function Chat() {
       return;
     }
     if (containsCrisisLanguage(trimmed)) { setCrisis(true); setPaused(true); }
-    const newHistory: ChatMsg[] = [...messages, { role: "user", content: trimmed }];
+
+    const userMsg: ChatMsg = { type: "chat", role: "user", content: trimmed };
+    const newHistory: Message[] = [...messages, userMsg];
     setMessages(newHistory);
     if (!overrideText) setInput("");
     callApi(newHistory, gameState);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // On mobile (touch), Enter should insert newline — only use shortcut on desktop
     if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(hover: hover)").matches) {
       e.preventDefault();
       handleSend();
@@ -117,116 +295,140 @@ export default function Chat() {
   }
 
   return (
-    // h-dvh = dynamic viewport height — корректно работает при открытой клавиатуре на мобайле
-    <div className="flex flex-col bg-bg" style={{ height: "100dvh" }}>
+    <div className="flex flex-col bg-bg relative" style={{ height: "100dvh" }}>
 
-      {/* ── HEADER ─────────────────────────────────────────── */}
-      <header className="flex-shrink-0 border-b border-border px-4 py-3 flex items-center justify-between gap-2">
-        {/* Left: back + title */}
+      {/* ── HEADER ───────────────────────────────────────────── */}
+      <header className="flex-shrink-0 border-b border-border px-4 py-3 flex items-center justify-between gap-2 bg-bg">
         <div className="flex items-center gap-2 min-w-0">
           <Link
             href="/"
             className="flex-shrink-0 text-[#8e8b85] hover:text-white transition-colors p-1 -ml-1"
             aria-label="Выход"
           >
-            {/* Left arrow SVG — no external icon font needed */}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M19 12H5M12 5l-7 7 7 7"/>
             </svg>
           </Link>
           <span className="text-sm font-medium truncate text-[#e9e7e2]">
-            Самая сложная игра
+            Самая сложная игра в мире
           </span>
         </div>
 
-        {/* Right: action buttons */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Map toggle (mobile only) */}
+          {/* Map toggle — mobile only */}
           <button
             onClick={() => setMapOpen((v) => !v)}
-            className="lg:hidden p-2 rounded-full border border-border text-[#8e8b85] hover:border-accent hover:text-accent transition-colors"
-            aria-label="Карта исследования"
-            title="Карта"
+            className={[
+              "lg:hidden p-2 rounded-full border transition-colors",
+              mapOpen
+                ? "border-accent text-accent"
+                : "border-border text-[#8e8b85] hover:border-accent hover:text-accent",
+            ].join(" ")}
+            aria-label="Карта"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
               <line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>
             </svg>
           </button>
-
           <button
             onClick={handlePause}
             disabled={loading || crisis}
-            className="text-xs px-2.5 py-1.5 rounded-full border border-border text-[#cfccc5] hover:border-accent hover:text-accent transition-colors disabled:opacity-40 whitespace-nowrap"
+            className="text-xs px-2.5 py-1.5 rounded-full border border-border text-[#cfccc5] hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
           >
             {paused && !crisis ? "Продолжить" : "Пауза"}
           </button>
-
           <button
             onClick={handleFinish}
             disabled={finished || loading}
-            className="text-xs px-2.5 py-1.5 rounded-full border border-border text-[#cfccc5] hover:border-accent hover:text-accent transition-colors disabled:opacity-40 whitespace-nowrap"
+            className="text-xs px-2.5 py-1.5 rounded-full border border-border text-[#cfccc5] hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
           >
             Завершить
           </button>
         </div>
       </header>
 
-      {/* ── MAP DRAWER (mobile) ─────────────────────────────── */}
+      {/* ── PROGRESS BAR ─────────────────────────────────────── */}
+      <ProgressHeader gameState={gameState} />
+
+      {/* ── MOBILE MAP DRAWER ─────────────────────────────────── */}
       {mapOpen && (
-        <div className="lg:hidden flex-shrink-0 border-b border-border bg-panel px-4 py-4 space-y-3">
+        <div className="lg:hidden flex-shrink-0 border-b border-border bg-panel px-4 py-4 space-y-4">
           <Map openedZones={gameState.openedZones} currentZone={gameState.currentZone} />
-          <p className="text-[11px] text-[#5a5853]">
-            Не терапия, не диагностика, не замена психолога.
-          </p>
-          {DEBUG_MODE && (
-            <pre className="text-[10px] font-mono text-[#7a7770] overflow-auto max-h-48 break-all">
-              {JSON.stringify(gameState, null, 2)}
-            </pre>
+          {gameState.keyInsights.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-[#5a5853] mb-2">Открытия</p>
+              <ul className="space-y-1.5">
+                {gameState.keyInsights.map((ins, i) => (
+                  <li key={i} className="text-xs text-[#8e8b85] leading-relaxed">· {ins}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}
 
-      {/* ── MAIN CONTENT ───────────────────────────────────── */}
+      {/* ── MAIN LAYOUT ──────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* Sidebar (desktop only) */}
-        <aside className="hidden lg:flex flex-col gap-4 w-56 flex-shrink-0 border-r border-border px-4 py-5 overflow-y-auto">
-          <Map openedZones={gameState.openedZones} currentZone={gameState.currentZone} />
-          <p className="text-[11px] leading-relaxed text-[#5a5853]">
-            Это не терапия, не диагностика и не замена психолога. Если тема
-            становится слишком тяжёлой — сделайте паузу.
-          </p>
+        {/* Desktop sidebar */}
+        <aside className="hidden lg:flex flex-col gap-6 w-52 flex-shrink-0 border-r border-border px-4 py-5 overflow-y-auto">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-[#5a5853] mb-3 px-3">Маршрут</p>
+            <Map openedZones={gameState.openedZones} currentZone={gameState.currentZone} />
+          </div>
+
+          {gameState.keyInsights.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-[#5a5853] mb-2 px-3">Открытия</p>
+              <ul className="space-y-2 px-3">
+                {gameState.keyInsights.map((ins, i) => (
+                  <li key={i} className="text-xs text-[#8e8b85] leading-relaxed">· {ins}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-auto">
+            <p className="text-[10px] leading-relaxed text-[#3a3836] px-3">
+              Не терапия, не диагностика, не замена психолога.
+            </p>
+          </div>
+
           {DEBUG_MODE && (
-            <div className="rounded-xl border border-border bg-bg p-3 text-[10px] font-mono text-[#7a7770] overflow-auto max-h-96 break-all">
-              <p className="text-accent mb-1 font-semibold">DEBUG</p>
+            <div className="rounded-xl border border-border bg-bg p-3 text-[10px] font-mono text-[#5a5853] overflow-auto max-h-80 break-all">
+              <p className="text-accent mb-1">DEBUG</p>
               <pre>{JSON.stringify(gameState, null, 2)}</pre>
             </div>
           )}
         </aside>
 
-        {/* Chat area */}
+        {/* Chat column */}
         <div className="flex-1 flex flex-col overflow-hidden">
 
           {/* Messages */}
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto px-4 py-5 space-y-4"
-            // Prevent rubber-band scroll stealing focus from textarea on iOS
             style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
           >
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={[
-                  "max-w-[88%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
-                  m.role === "user"
-                    ? "bg-accent text-bg rounded-br-sm"
-                    : "bg-white/[0.05] text-[#e3e0d9] border border-border rounded-bl-sm",
-                ].join(" ")}>
-                  {m.content}
+            {messages.map((m, i) => {
+              if (m.type === "transition") {
+                return <CellTransitionCard key={i} msg={m} />;
+              }
+              return (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={[
+                    "max-w-[88%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
+                    m.role === "user"
+                      ? "bg-accent text-bg rounded-br-sm"
+                      : "bg-white/[0.05] text-[#e3e0d9] border border-border rounded-bl-sm",
+                  ].join(" ")}>
+                    {m.content}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {loading && (
               <div className="flex justify-start">
@@ -254,10 +456,9 @@ export default function Chat() {
             )}
           </div>
 
-          {/* ── INPUT AREA ──────────────────────────────────── */}
+          {/* Input area */}
           <div
-            className="flex-shrink-0 border-t border-border bg-bg px-3 pt-3 pb-3"
-            // pb with safe-area for iPhone home bar
+            className="flex-shrink-0 border-t border-border bg-bg px-3 pt-3"
             style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}
           >
             {paused && !crisis && (
@@ -265,7 +466,6 @@ export default function Chat() {
                 Пауза. Нажмите «Продолжить», когда будете готовы.
               </div>
             )}
-
             <div className="flex items-end gap-2">
               <textarea
                 ref={textareaRef}
@@ -275,52 +475,39 @@ export default function Chat() {
                 disabled={loading || paused || finished}
                 placeholder={
                   finished ? "Игра завершена." :
-                  paused   ? "Игра на паузе…"  :
+                  paused   ? "Пауза…"          :
                              "Напишите ответ…"
                 }
                 rows={1}
-                className="flex-1 resize-none bg-white/[0.04] border border-border rounded-2xl px-4 py-3 text-[15px] text-[#e9e7e2] placeholder:text-[#4a4844] focus:outline-none focus:border-accent disabled:opacity-50 leading-relaxed"
+                className="flex-1 resize-none bg-white/[0.04] border border-border rounded-2xl px-4 py-3 text-[15px] text-[#e9e7e2] placeholder:text-[#3a3836] focus:outline-none focus:border-accent disabled:opacity-50 leading-relaxed"
                 style={{ minHeight: "48px", maxHeight: "120px" }}
               />
-
-              {/* Send button — icon on mobile, text on desktop */}
               <button
                 onClick={() => handleSend()}
                 disabled={loading || paused || finished || !input.trim()}
                 className="flex-shrink-0 w-12 h-12 rounded-2xl bg-accent text-bg flex items-center justify-center hover:bg-[#d9bb84] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 aria-label="Отправить"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="22" y1="2" x2="11" y2="13"/>
                   <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                 </svg>
               </button>
             </div>
-
-            <div className="mt-1.5 text-[11px] text-[#3a3836] text-right px-1">
-              {input.length > 0 && `${input.length} / ${MAX_USER_MESSAGE_LENGTH}`}
+            <div className="h-5 mt-1 text-right pr-1">
+              {input.length > 0 && (
+                <span className="text-[11px] text-[#3a3836]">
+                  {input.length} / {MAX_USER_MESSAGE_LENGTH}
+                </span>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── FINISHED BANNER ────────────────────────────────── */}
+      {/* ── FINISH OVERLAY ───────────────────────────────────── */}
       {finished && (
-        <div className="flex-shrink-0 border-t border-border px-6 py-5 text-center">
-          <p className="text-sm text-[#8e8b85] mb-3">
-            Игра завершена. Спасибо, что прошли этот путь.
-          </p>
-          {feedbackUrl && (
-            <a
-              href={feedbackUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block px-6 py-3 rounded-full border border-accent text-accent text-sm hover:bg-accent hover:text-bg transition-colors"
-            >
-              Оставить отзыв
-            </a>
-          )}
-        </div>
+        <FinishScreen gameState={gameState} feedbackUrl={feedbackUrl} />
       )}
     </div>
   );
